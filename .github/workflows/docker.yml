@@ -36,6 +36,12 @@ jobs:
 
       - run: npm ci
 
+      # Next.js genererar typer för sidor och API-rutter (PageProps, RouteContext)
+      # samt next-env.d.ts. De filerna ligger inte i git, så på en färsk
+      # utcheckning måste de skapas innan TypeScript kan kontrollera koden.
+      - name: Generera Next.js-typer
+        run: npx next typegen
+
       - name: Typkontroll
         run: npx tsc --noEmit
 
