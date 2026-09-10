@@ -1,0 +1,16 @@
+# Allt som inte ska med i byggkontexten.
+node_modules
+.next
+out
+build
+data
+.env
+.env*.local
+.git
+.github
+reference
+tsconfig.tsbuildinfo
+next-env.d.ts
+*.md
+!README.md
+.claude

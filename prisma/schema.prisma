@@ -1,0 +1,200 @@
+// Datamodell för utläggssystemet.
+// SQLite lokalt. För produktion kan provider bytas till "postgresql"
+// (se README, avsnittet "Byta databas").
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth.js-tabeller (Google-inloggning) ----------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
+  // Sparade uppgifter som förifylls nästa gång användaren gör ett utlägg
+  savedPayeeName     String?
+  savedPayeeEmail    String?
+  savedBankName      String?
+  savedClearing      String?
+  savedAccountNumber String? // krypterat
+  savedCommittee     String?
+  savedSignature     String? // PNG som data-URL, erbjuds vid nästa utlägg
+
+  expenses  Expense[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Utlägg ----------
+
+// status: UTKAST | INSKICKAD | KOMPLETTERING | GODKAND | NEKAD | UTBETALD
+model Expense {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  status String @default("UTKAST")
+
+  // Löpnummer, sätts när utlägget skickas in första gången: "<år>-<nr>"
+  year   Int?
+  number Int?
+
+  // Blankettens fält
+  committeeId   String? // Vald kommitté (null = "Annan")
+  committeeRef  Committee? @relation(fields: [committeeId], references: [id], onDelete: SetNull)
+  committee     String? // Kommitténs namn som det ska stå på blanketten (t.ex. "M-ord" eller "Annan: X")
+  title         String? // Titel för arrangemang
+  description   String? // Beskrivning
+  purchaseDate  DateTime? // Senaste kvittodatumet, härlett från kvittona
+  totalOre      Int      @default(0) // Summa i öre, summan av kvittonas delbelopp
+  payeeName     String?
+  payeeEmail    String?
+  bankName      String?
+  clearing      String?
+  accountNumber String? // krypterat
+
+  // Utläggarens attest
+  signatureData String? // PNG som data-URL
+  signedAt      DateTime?
+
+  // Hantering
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  approvedBy       String? // e-post på kassören som godkände
+  rejectedAt       DateTime?
+  paidAt           DateTime?
+  paidBy           String?
+  adminMessage     String? // Senaste meddelandet från kassören (komplettering/nekande)
+  reminderSentAt   DateTime? // Senaste påminnelsen till kassören
+  accountDeletedAt DateTime? // När kontonumret gallrades (GDPR)
+
+  // Genererad blankett
+  pdfPath     String?
+  driveFileId String?
+  driveUrl    String?
+
+  receipts Receipt[]
+  events   ExpenseEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, number])
+  @@index([userId, status])
+  @@index([status, submittedAt])
+  @@index([committeeId, status])
+}
+
+// Kommittéer och föreningar som utlägg kan göras för, med ansvarig kassör.
+model Committee {
+  id             String  @id @default(cuid())
+  name           String  @unique
+  treasurerEmail String? // Kassören som får notiser och hanterar kommitténs utlägg (null = sektionskassören)
+  treasurerName  String?
+  driveFolderId  String? // Egen Drive-mapp (null = standardmappen)
+  active         Boolean @default(true)
+  sortOrder      Int     @default(0)
+  expenses       Expense[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Namn och signatur för varje person som får godkänna utlägg.
+model TreasurerProfile {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  signatureData String? // PNG som data-URL
+  updatedAt     DateTime @updatedAt
+}
+
+model Receipt {
+  id           String    @id @default(cuid())
+  expenseId    String
+  expense      Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  position     Int       @default(0)
+  amountOre    Int       @default(0) // Delbelopp i öre
+  purchaseDate DateTime? // Datum på just det här kvittot
+  note         String? // Frivillig kommentar, t.ex. "Coop, fika"
+  files     ReceiptFile[]
+}
+
+model ReceiptFile {
+  id           String  @id @default(cuid())
+  receiptId    String
+  receipt      Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  originalName String
+  mimeType     String
+  size         Int
+  storedPath   String // originalfilen, relativt UPLOAD_DIR
+  previewPath  String? // normaliserad JPEG (bilder), relativt UPLOAD_DIR
+  width        Int?
+  height       Int?
+  pageCount    Int?
+  createdAt    DateTime @default(now())
+}
+
+// Händelselogg per utlägg (skapat, inskickat, godkänt, ...)
+model ExpenseEvent {
+  id        String   @id @default(cuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  type      String
+  message   String?
+  actor     String? // e-post på den som utförde händelsen
+  createdAt DateTime @default(now())
+
+  @@index([expenseId, createdAt])
+}
+
+// Inställningar (en rad, id = "default")
+model Settings {
+  id            String    @id @default("default")
+  jobsLastRunAt DateTime? // När de dagliga jobben (påminnelser, gallring) senast kördes
+  updatedAt     DateTime  @updatedAt
+}

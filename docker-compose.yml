@@ -1,0 +1,103 @@
+# Utläggssystemet, Maskinteknologsektionen.
+#
+# Kör tjänsten från den färdigbyggda bilden i GitHub Container Registry.
+# Avsedd att klistras in som en stack i Portainer.
+#
+#   docker compose pull && docker compose up -d
+#
+# KRAV PÅ VÄRDEN
+#   * Ingen separat databasserver behövs. Databasen är SQLite och ligger som en
+#     fil i volymen nedan, tillsammans med kvittobilder och genererade PDF:er.
+#   * Volymen MÅSTE vara beständig. Försvinner den försvinner alla utlägg som
+#     ännu inte hunnit arkiveras i Google Drive.
+#   * Utrymme: räkna med 3–7 MB per utlägg, alltså ungefär 1–3 GB per
+#     verksamhetsår. Börja med 5 GB.
+#   * Minne: cirka 400 MB i drift, 1 GB tilldelat räcker väl.
+#   * Utgående HTTPS (port 443) till googleapis.com och accounts.google.com
+#     krävs för inloggning, arkivering i Drive och mailutskick.
+#   * Ingen utgående SMTP behövs.
+#   * Tjänsten lyssnar på port 3000 och ska nås via HTTPS utifrån. Terminera
+#     TLS i er reverse proxy och skicka vidare till containern.
+
+services:
+  utlagg:
+    image: ghcr.io/OWNER/utlaggssystem:latest
+    container_name: utlagg
+    restart: unless-stopped
+
+    # Alla inställningar och hemligheter läses från .env bredvid den här filen.
+    # Se .env.example för vilka nycklar som behövs och hur de skaffas.
+    env_file:
+      - .env
+
+    environment:
+      # Sätts av bilden, men upprepas här för tydlighet.
+      NODE_ENV: production
+      TZ: Europe/Stockholm
+      PORT: "3000"
+      # Sökvägar inuti containern. Ändra inte utan att flytta volymen.
+      DATABASE_URL: file:/app/data/utlagg.db
+      UPLOAD_DIR: /app/data/uploads
+      PDF_DIR: /app/data/pdf
+
+    ports:
+      # Bind till localhost om en reverse proxy på samma värd tar hand om TLS.
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      - utlagg-data:/app/data
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+    # Rimliga tak. Tjänsten är liten och ojämnt belastad.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+volumes:
+  utlagg-data:
+    # Byt till en bind mount om ni hellre vill styra var filerna hamnar:
+    #   driver: local
+    #   driver_opts:
+    #     type: none
+    #     o: bind
+    #     device: /srv/utlagg/data
+
+# ---------------------------------------------------------------------------
+# OM NI HELLRE VILL KÖRA POSTGRES ÄN SQLITE
+#
+# Systemet fungerar med båda. SQLite kräver ingen databasserver och är fullt
+# tillräckligt för den här volymen, men ska tjänsten in i en befintlig
+# databasdrift går det att byta:
+#
+#   1. Ändra provider till "postgresql" i prisma/schema.prisma.
+#   2. Ta bort prisma/migrations och kör: npx prisma migrate dev --name init
+#   3. Sätt DATABASE_URL till postgresql://utlagg:LÖSENORD@db:5432/utlagg
+#   4. Avkommentera tjänsten nedan.
+#
+# Volymen för kvitton och PDF:er behövs ändå: de filerna ligger inte i databasen.
+#
+#   db:
+#     image: postgres:17-alpine
+#     restart: unless-stopped
+#     environment:
+#       POSTGRES_USER: utlagg
+#       POSTGRES_PASSWORD: BYT_MIG
+#       POSTGRES_DB: utlagg
+#     volumes:
+#       - utlagg-db:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U utlagg"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+#
+# och lägg till under volumes:
+#   utlagg-db:
+# ---------------------------------------------------------------------------
