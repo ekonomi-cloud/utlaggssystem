@@ -38,7 +38,7 @@ ENV TZ=Europe/Stockholm
 ENV PORT=3000
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates tzdata wget \
+  && apt-get install -y --no-install-recommends openssl ca-certificates tzdata wget util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 # Endast produktionsberoenden. Prisma-CLI, tsx och dotenv ligger bland dem, så
@@ -55,18 +55,22 @@ COPY assets ./assets
 COPY scripts ./scripts
 COPY src ./src
 
-# Kör inte som root. Katalogen för data ägs av appanvändaren, så att den kan
-# skriva dit även när volymen monteras.
+# Appen kör inte som root. Behållaren startar däremot som root, för att
+# startskriptet ska kunna rätta ägandet på en monterad volym som skapats av en
+# tidigare version, och först därefter byta till appanvändaren.
 RUN useradd --system --create-home --uid 10001 utlagg \
   && mkdir -p /app/data \
   && chown -R utlagg:utlagg /app
-USER utlagg
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 
 # Portainer och Docker använder den här för att se om tjänsten mår bra.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD wget --quiet --tries=1 --spider "http://127.0.0.1:${PORT}/api/health" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Migreringarna körs vid varje start: de är idempotenta och gör inget om
 # databasen redan är aktuell.
