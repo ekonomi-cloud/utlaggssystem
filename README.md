@@ -191,13 +191,12 @@ Ett GitHub-flöde (`.github/workflows/docker.yml`) bygger bilden vid varje push 
 publicerar den i GitHub Container Registry:
 
 ```
-ghcr.io/<ägare>/utlaggssystem:latest
+ghcr.io/ekonomi-cloud/utlaggssystem:latest
 ```
 
 `docker-compose.yml` är skriven för att klistras in som en stack i Portainer. Den beskriver
 volymen, hälsokontrollen och vilka miljövariabler som behövs, och innehåller ett avstängt
-Postgres-alternativ för den som hellre vill det. Byt `OWNER` i `image:` mot repots ägare och
-lägg en ifylld `.env` bredvid filen.
+Postgres-alternativ för den som hellre vill det. Lägg en ifylld `.env` bredvid filen.
 
 ```bash
 docker compose pull && docker compose up -d

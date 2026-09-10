@@ -21,7 +21,7 @@
 
 services:
   utlagg:
-    image: ghcr.io/OWNER/utlaggssystem:latest
+    image: ghcr.io/ekonomi-cloud/utlaggssystem:latest
     container_name: utlagg
     restart: unless-stopped
 
